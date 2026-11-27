@@ -40,6 +40,8 @@ export interface IndayHandle {
   capabilities: AvatarCapabilities;
   /** Drive the mouth. `value` is 0..1 jaw opening. */
   setMouthOpen(value: number): void;
+  /** Tell the body whether INDAY is mid-sentence, so gestures can react. */
+  setSpeaking(active: boolean): void;
   /** Idle breathing + weight shift, called every frame. */
   update(elapsed: number): void;
   dispose(): void;
@@ -294,7 +296,7 @@ export interface LoadIndayOptions {
 }
 
 export async function loadInday(opts: LoadIndayOptions = {}): Promise<IndayHandle> {
-  const url = opts.url ?? 'models/SariSwerte_INDAY.glb';
+  const url = opts.url ?? 'models/INDAY_Avatar.glb';
 
   const place = (root: THREE.Group) => {
     root.position.set(0, 0, 0.55);
@@ -357,6 +359,9 @@ export async function loadInday(opts: LoadIndayOptions = {}): Promise<IndayHandl
         if (jawBase === undefined) jawBase = jaw.rotation.x;
         jaw.rotation.x = jawBase + v * 0.42;
       },
+      setSpeaking() {
+        // The procedural stand-in has no rig to gesture with.
+      },
       update(elapsed: number) {
         root.position.y = Math.sin(elapsed * 1.1) * 0.006;
         root.rotation.y = Math.sin(elapsed * 0.35) * 0.03;
@@ -408,16 +413,11 @@ export async function loadInday(opts: LoadIndayOptions = {}): Promise<IndayHandl
 
   // The Blender build already ships the emerald blouse, gold trim and INDAY name
   // tag. Only add them when the model arrived without them (a bare base mesh).
-  const modelHasOutfit = /INDAY_Blouse|INDAY_NameTag/i.test(
-    (() => {
-      let names = '';
-      root.traverse((o) => {
-        names += o.name + ' ';
-      });
-      return names;
-    })(),
-  );
-  if (!modelHasOutfit) {
+  // A skinned character already ships its own clothing and textures; adding
+  // procedural geometry on top would float over the rig. Only the bare
+  // procedural stand-in gets the emerald outfit.
+  const isRigged = boneCount > 0;
+  if (!isRigged) {
     const blouse = makeBlouse();
     blouse.position.set(0, 1.2, 0);
     blouse.scale.setScalar(1.02);
@@ -427,6 +427,64 @@ export async function loadInday(opts: LoadIndayOptions = {}): Promise<IndayHandl
     tag.position.set(0.08, 1.24, 0.21);
     group.add(tag);
   }
+
+  // ---- Body animation -------------------------------------------------
+  // The operator's avatar is a skinned Mixamo-style rig, so we can move real
+  // bones: breathing, a slow head sway, and a talking gesture with the arms.
+  // Bones are cached with their rest rotation so every frame is an offset
+  // from the authored pose instead of drifting further away.
+  type RigBone = { bone: THREE.Bone; rest: THREE.Euler };
+  const grab = (suffixes: string[]): RigBone[] => {
+    const out: RigBone[] = [];
+    root.traverse((o) => {
+      const b = o as THREE.Bone;
+      if (!b.isBone) return;
+      const n = b.name.toLowerCase();
+      if (suffixes.some((sfx) => n === sfx || n.endsWith(sfx))) {
+        out.push({ bone: b, rest: b.rotation.clone() });
+      }
+    });
+    return out;
+  };
+  const spineBones = grab(['spine', 'spine1', 'spine2']);
+  const headBones = grab(['neck', 'neck1', 'neck2', 'head']);
+  const armBonesL = grab(['leftarm', 'leftforearm']);
+  const armBonesR = grab(['rightarm', 'rightforearm']);
+  const rigged = boneCount > 0;
+
+  let speaking = false;
+  let talkRamp = 0;
+
+  const animateBody = (t: number, talking: boolean) => {
+    if (!rigged) return;
+    // Ease the gesture in and out so the arms do not snap between poses.
+    talkRamp += ((talking ? 1 : 0) - talkRamp) * 0.06;
+
+    const breathe = Math.sin(t * 1.15) * 0.018;
+    for (const { bone, rest } of spineBones) {
+      bone.rotation.x = rest.x + breathe * 0.5;
+      bone.rotation.z = rest.z + Math.sin(t * 0.7) * 0.006;
+    }
+
+    // Head: slow idle sway, plus a small nod on the beat of the sentence.
+    const nod = Math.sin(t * 2.3) * 0.035 * talkRamp;
+    for (const { bone, rest } of headBones) {
+      bone.rotation.x = rest.x + Math.sin(t * 0.9) * 0.03 + nod;
+      bone.rotation.y = rest.y + Math.sin(t * 0.62) * 0.09;
+      bone.rotation.z = rest.z + Math.sin(t * 0.45) * 0.02;
+    }
+
+    // Arms: a small open-hand selling gesture while speaking, relaxed otherwise.
+    const gest = Math.sin(t * 1.9) * talkRamp;
+    for (const { bone, rest } of armBonesL) {
+      bone.rotation.z = rest.z + gest * 0.13 + talkRamp * 0.05;
+      bone.rotation.x = rest.x - gest * 0.07;
+    }
+    for (const { bone, rest } of armBonesR) {
+      bone.rotation.z = rest.z - gest * 0.11 - talkRamp * 0.04;
+      bone.rotation.x = rest.x + gest * 0.06;
+    }
+  };
 
   const mode: LipSyncMode = hasVisemes ? 'visemes' : hasArkit ? 'arkit' : jawBone ? 'jaw-bone' : 'none';
 
@@ -468,8 +526,12 @@ export async function loadInday(opts: LoadIndayOptions = {}): Promise<IndayHandl
       note,
     },
     setMouthOpen,
+    setSpeaking(active: boolean) {
+      speaking = active;
+    },
     update(elapsed: number) {
       group.position.y = Math.sin(elapsed * 1.1) * 0.005;
+      animateBody(elapsed, speaking);
     },
     dispose() {
       root.traverse((o) => {

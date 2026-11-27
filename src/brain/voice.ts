@@ -1,24 +1,21 @@
 /**
  * INDAY's voice.
  *
- * Boss wants Fish Audio (model s2.1-pro-free) while it is free, falling back to
- * the browser's own speechSynthesis when the quota runs out or no key is set.
- * Fish sends no CORS headers, so the browser cannot call it directly. Audio is
- * fetched from the notebook's /tts proxy, which holds FISH_API_KEY in .env and
- * never sends it to the page.
+ * edge-tts is free, needs no key and no account, so nothing billable and
+ * nothing secret is involved. The browser cannot reach Microsoft's speech
+ * endpoint directly, so audio comes from the notebook's /tts proxy.
  *
- * The Fish endpoint shape is configurable because the service is in flux; if a
- * request fails for any reason we degrade to the browser voice rather than
- * leaving INDAY silent.
+ * When no tunnel is configured we fall back to the browser's own
+ * speechSynthesis, which always exists. INDAY should never go silent.
  */
 
-export type VoiceProvider = 'browser' | 'fish';
+export type VoiceProvider = 'browser' | 'edge';
 
 export interface VoiceConfig {
   provider: VoiceProvider;
   /** Notebook tunnel base URL; audio comes from `${baseUrl}/tts`. */
   baseUrl: string;
-  /** Fish voice id, forwarded to the proxy. */
+  /** edge-tts voice name, forwarded to the proxy. */
   referenceId: string;
   format: 'mp3' | 'wav';
 }
@@ -28,8 +25,8 @@ const STORAGE_KEY = 'sariswerte.voice';
 export const DEFAULT_VOICE: VoiceConfig = {
   provider: 'browser',
   baseUrl: '',
-  // Fish's own "Masiglang Tagalog": young, cheerful, conversational, tl+en.
-  referenceId: 'c9ee32e569964531b5d612b938929098',
+  // Filipino female, friendly and positive. Closest free match to INDAY.
+  referenceId: 'fil-PH-BlessicaNeural',
   format: 'mp3',
 };
 
@@ -45,7 +42,7 @@ export function loadVoiceConfig(): VoiceConfig {
   return {
     ...cfg,
     baseUrl: cfg.baseUrl.trim(),
-    provider: cfg.baseUrl.trim() ? (saved.provider ?? 'fish') : 'browser',
+    provider: cfg.baseUrl.trim() ? (saved.provider ?? 'edge') : 'browser',
   };
 }
 
@@ -53,8 +50,8 @@ export function saveVoiceConfig(cfg: VoiceConfig): void {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(cfg));
 }
 
-export function isFishConfigured(cfg: VoiceConfig): boolean {
-  return cfg.provider === 'fish' && Boolean(cfg.baseUrl);
+export function isEdgeConfigured(cfg: VoiceConfig): boolean {
+  return cfg.provider === 'edge' && Boolean(cfg.baseUrl);
 }
 
 /** Browser speechSynthesis. Free, needs no key, always available as a floor. */
@@ -85,7 +82,7 @@ export function speakWithBrowser(
   });
 }
 
-async function fishAudio(text: string, cfg: VoiceConfig, timeoutMs: number): Promise<Blob> {
+async function edgeAudio(text: string, cfg: VoiceConfig, timeoutMs: number): Promise<Blob> {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), timeoutMs);
   try {
@@ -131,27 +128,27 @@ function playBlob(blob: Blob): Promise<void> {
 
 export interface SpeakResult {
   used: VoiceProvider;
-  /** Set when Fish was configured but failed, so the HUD can show why. */
+  /** Set when edge-tts was configured but failed, so the HUD can show why. */
   fellBackReason?: string;
 }
 
 /**
- * Speak a line. Tries Fish when configured, always resolves, and reports which
- * provider actually produced audio so the UI never lies about it.
+ * Speak a line. Tries edge-tts when configured, always resolves, and reports
+ * which provider actually produced audio so the UI never lies about it.
  */
 export async function speakWithVoice(
   text: string,
   cfg: VoiceConfig,
   opts: { timeoutMs?: number } = {},
 ): Promise<SpeakResult> {
-  if (!isFishConfigured(cfg)) {
+  if (!isEdgeConfigured(cfg)) {
     await speakWithBrowser(text);
     return { used: 'browser' };
   }
   try {
-    const blob = await fishAudio(text, cfg, opts.timeoutMs ?? 30000);
+    const blob = await edgeAudio(text, cfg, opts.timeoutMs ?? 30000);
     await playBlob(blob);
-    return { used: 'fish' };
+    return { used: 'edge' };
   } catch (err) {
     await speakWithBrowser(text);
     return { used: 'browser', fellBackReason: (err as Error).message };

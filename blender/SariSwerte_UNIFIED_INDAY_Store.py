@@ -4,7 +4,7 @@
 #
 # Everything in one file, one export, as requested:
 #   - INDAY body (Grab3D woman base proportions), A-pose, 1.70 m, standing
-#   - Morena skin, long straight black hair, emerald blouse with gold details, INDAY name tag
+#   - Morena skin, long straight black hair, emerald sando with gold trim, INDAY name tag
 #   - WORKING MOUTH: real shape keys named for TalkingHead / Oculus visemes + ARKit jawOpen
 #   - Modern SariSwerte store: emerald + white walls, grey tile floor, 3 LED shelves per side
 #     with the named products, glass counter, tinapay, eggs, POS, card machine, GCash/Maya QR,
@@ -252,26 +252,42 @@ for side in (-1, 1):
     parts.append(s)
 
 
-# ============ 7. DAMIT NI INDAY - Emerald Green Blouse + Gold ============
-blouse_mat = new_mat("INDAY_Blouse_EmeraldGreen", (0.02, 0.37, 0.27), rough=0.62)
+# ============ 7. DAMIT NI INDAY - Emerald Green SANDO + Gold ============
+# A sando is sleeveless: the torso is covered but both shoulders and the whole
+# arm stay bare, held up by two thin straps. The earlier blouse wrapped the
+# torso all the way to the shoulder line, which read as a sleeved top.
+sando_mat = new_mat("INDAY_Sando_EmeraldGreen", (0.02, 0.37, 0.27), rough=0.62)
 gold_mat = new_mat("INDAY_Gold", (0.98, 0.75, 0.14), rough=0.22, metal=0.9)
 
-bpy.ops.mesh.primitive_cylinder_add(vertices=28, radius=1.0, depth=1.0, location=(0, 0, 1.215))
-blouse = bpy.context.active_object
-blouse.name = "INDAY_Blouse"
-blouse.scale = (0.165, 0.135, 0.30)
-blouse.data.materials.append(blouse_mat)
-parts.append(blouse)
+# Torso panel stops below the shoulder line (shoulders sit at z=1.40) so the
+# collarbone and deltoids show.
+bpy.ops.mesh.primitive_cylinder_add(vertices=28, radius=1.0, depth=1.0, location=(0, 0, 1.205))
+sando = bpy.context.active_object
+sando.name = "INDAY_Sando"
+sando.scale = (0.172, 0.142, 0.245)
+sando.data.materials.append(sando_mat)
+parts.append(sando)
 
-bpy.ops.mesh.primitive_torus_add(location=(0, 0, 1.455), major_radius=0.062, minor_radius=0.008)
-collar = bpy.context.active_object
-collar.name = "INDAY_Collar_Gold"
-collar.data.materials.append(gold_mat)
-parts.append(collar)
+# Two straps over the shoulders: the feature that makes it a sando.
+for side in (-1, 1):
+    strap = box(f"INDAY_Sando_Strap_{'L' if side < 0 else 'R'}", 1,
+                (side * 0.093, 0, 1.392), (0.02, 0.37, 0.27),
+                scale=(0.038, 0.052, 0.135), rough=0.62)
+    parts.append(strap)
 
-placket = box("INDAY_Placket_Gold", 1, (0, FACE_Y + 0.045, 1.30), (0.98, 0.75, 0.14),
-              scale=(0.012, 0.006, 0.19), metal=0.9, rough=0.22)
-parts.append(placket)
+# Gold neckline trim, sitting on the sando edge rather than around the neck.
+bpy.ops.mesh.primitive_torus_add(location=(0, 0, 1.328), major_radius=0.088, minor_radius=0.006)
+neckline = bpy.context.active_object
+neckline.name = "INDAY_Sando_Neckline_Gold"
+neckline.data.materials.append(gold_mat)
+parts.append(neckline)
+
+# Gold hem at the waist keeps the emerald+gold identity of the store.
+bpy.ops.mesh.primitive_torus_add(location=(0, 0, 1.084), major_radius=0.118, minor_radius=0.007)
+hem = bpy.context.active_object
+hem.name = "INDAY_Sando_Hem_Gold"
+hem.data.materials.append(gold_mat)
+parts.append(hem)
 
 skirt = box("INDAY_Skirt", 1, (0, 0, 0.80), (0.09, 0.11, 0.13),
             scale=(0.20, 0.16, 0.24))

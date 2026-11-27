@@ -15,7 +15,7 @@ import {
   loadVoiceConfig,
   saveVoiceConfig,
   speakWithVoice,
-  isFishConfigured,
+  isEdgeConfigured,
   type VoiceConfig,
 } from './brain/voice';
 import {
@@ -95,8 +95,8 @@ export default function App() {
 
   /**
    * Speak a line: drive the lips from the same text, and the audio in parallel.
-   * Fish Audio is tried first; the browser voice covers quota and network
-   * failures so INDAY is never silent.
+   * edge-tts is tried first; the browser voice covers network failures so
+   * INDAY is never silent.
    */
   const say = useCallback(
     async (text: string) => {
@@ -179,8 +179,8 @@ export default function App() {
     setShowSettings(false);
     pushLog(
       'sys',
-      isFishConfigured(cleanedVoice)
-        ? 'Boses: Fish Audio na si INDAY (sa notebook ang key).'
+      isEdgeConfigured(cleanedVoice)
+        ? 'Boses: edge-tts na si INDAY (libre, walang key).'
         : 'Boses: browser muna — walang tunnel para sa /tts.',
     );
     pushLog('sys', cleaned.baseUrl ? `Brain set to ${cleaned.baseUrl}` : 'Brain cleared — INDAY has no SeaLLM tunnel.');
@@ -214,6 +214,7 @@ export default function App() {
     <div className="app">
       <Stage
         mouthRef={mouthRef}
+        speakingRef={speechActive}
         onCapabilities={setCaps}
         onReady={() => setReady(true)}
         onError={(m) => pushLog('sys', m)}
@@ -345,9 +346,9 @@ export default function App() {
             </label>
             <h2 style={{ marginTop: 22 }}>Boses ni INDAY</h2>
             <p className="hint">
-              Fish Audio ang boses ni INDAY, pero hindi kayang tawagan ng browser
-              nang direkta (walang CORS). Nasa notebook ang key: dito lang kailangan
-              ang tunnel URL, at doon naka-<code>.env</code> ang <code>FISH_API_KEY</code>.
+              Libre ang <strong>edge-tts</strong> at walang key, kaya wala nang
+              bayad at walang sekretong nakalagay. Hindi lang kayang tawagan ng
+              browser nang direkta, kaya dumadaan sa <code>/tts</code> ng notebook.
               Kapag walang tunnel, browser voice muna.
             </p>
             <label className="field">
@@ -361,11 +362,11 @@ export default function App() {
               />
             </label>
             <label className="field">
-              <span>Voice / reference id</span>
+              <span>Voice</span>
               <input
                 value={voiceDraft.referenceId}
                 onChange={(e) => setVoiceDraft({ ...voiceDraft, referenceId: e.target.value })}
-                placeholder="c9ee32e569964531b5d612b938929098"
+                placeholder="fil-PH-BlessicaNeural"
                 autoCapitalize="none"
                 spellCheck={false}
               />
@@ -378,7 +379,7 @@ export default function App() {
                   setVoiceDraft({ ...voiceDraft, provider: e.target.value as VoiceConfig['provider'] })
                 }
               >
-                <option value="fish">Fish Audio</option>
+                <option value="edge">edge-tts (libre)</option>
                 <option value="browser">Browser voice (free fallback)</option>
               </select>
             </label>

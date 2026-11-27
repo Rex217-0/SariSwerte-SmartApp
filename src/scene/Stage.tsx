@@ -8,13 +8,15 @@ import { LipSyncPlayer } from '../inday/lipsync';
 export interface StageProps {
   /** Mouth opening, 0..1, owned by React so speech can drive it. */
   mouthRef: React.MutableRefObject<number>;
+  /** True while INDAY is mid-sentence, so the body can gesture. */
+  speakingRef: React.MutableRefObject<boolean>;
   onCapabilities: (caps: AvatarCapabilities) => void;
   onReady: () => void;
   onError: (message: string) => void;
 }
 
 /** The Three.js canvas: store, INDAY, and the render loop. */
-export function Stage({ mouthRef, onCapabilities, onReady, onError }: StageProps) {
+export function Stage({ mouthRef, speakingRef, onCapabilities, onReady, onError }: StageProps) {
   const hostRef = useRef<HTMLDivElement>(null);
   const handleRef = useRef<IndayHandle | null>(null);
 
@@ -73,6 +75,7 @@ export function Stage({ mouthRef, onCapabilities, onReady, onError }: StageProps
 
       const inday = handleRef.current;
       if (inday) {
+        inday.setSpeaking(speakingRef.current);
         inday.update(elapsed);
         inday.setMouthOpen(mouthRef.current);
       }
