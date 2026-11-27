@@ -16,6 +16,7 @@ seallm/*.gguf
 seallm/cloudflared
 seallm/tunnel.log
 seallm/tindahan_data.json
+tindahan_data.json
 seallm/.env
 
 # Agent working notes

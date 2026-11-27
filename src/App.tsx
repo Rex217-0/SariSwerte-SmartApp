@@ -130,7 +130,7 @@ export default function App() {
     setTurns((prev) => [...prev, { role: 'user', content: text }]);
 
     try {
-      const reply = await askSeaLLM(brain, text, turns, 60000, storyN);
+      const reply = await askSeaLLM(brain, text, turns, 180000, storyN);
       setOnline(true);
       setTurns((prev) => [...prev, { role: 'assistant', content: reply.text }]);
       pushLog('inday', reply.text);

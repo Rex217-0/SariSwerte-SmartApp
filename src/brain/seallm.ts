@@ -110,7 +110,7 @@ export async function askSeaLLM(
   cfg: BrainConfig,
   message: string,
   history: { role: 'user' | 'assistant'; content: string }[] = [],
-  timeoutMs = 60000,
+  timeoutMs = 180000,
   blockNumber?: number,
 ): Promise<BrainReply> {
   if (!isBrainConfigured(cfg)) {
@@ -136,7 +136,8 @@ export async function askSeaLLM(
       body: JSON.stringify({
         model: cfg.model,
         temperature: 0.7,
-        max_tokens: 220,
+        max_tokens: 160,
+        story_block: blockNumber ?? 1,
         messages: [
           { role: 'system', content: systemPromptFor(blockNumber) },
           ...history.slice(-6),
