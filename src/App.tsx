@@ -19,6 +19,7 @@ import {
   isEdgeConfigured,
   type VoiceConfig,
 } from './brain/voice';
+import { backendStatus } from './lib/appwrite';
 import {
   START_BLOCK_NUMBER,
   STORY_BLOCK_COUNT,
@@ -192,6 +193,8 @@ export default function App() {
     pushLog('sys', cleaned.baseUrl ? `Brain set to ${cleaned.baseUrl}` : 'Brain cleared — INDAY has no SeaLLM tunnel.');
   };
 
+  const backend = backendStatus();
+
   const brainPill = !isBrainConfigured(brain)
     ? { cls: 'off', label: 'BRAIN OFFLINE' }
     : online === null
@@ -247,6 +250,13 @@ export default function App() {
           <span className="pill on" title="Convai story block driving INDAY">
             <i className="dot" />
             BLOCK {storyN}/{STORY_BLOCK_COUNT}
+          </span>
+          <span
+            className={`pill ${backend.online ? 'on' : 'off'}`}
+            title={backend.online ? 'Appwrite: vendors, sales, inventory, utang, feedback' : 'Appwrite env vars not set — data stays on this device'}
+          >
+            <i className="dot" />
+            {backend.label}
           </span>
         </div>
       </header>

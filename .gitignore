@@ -20,3 +20,4 @@ seallm/.env
 
 # Agent working notes
 .openhands/
+__pycache__/
