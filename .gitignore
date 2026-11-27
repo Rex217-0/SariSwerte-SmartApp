@@ -2,3 +2,9 @@ node_modules/
 dist/
 *.local
 .DS_Store
+
+# never commit the Convai credential
+.convai_key
+*.convai
+.env
+.env.*
