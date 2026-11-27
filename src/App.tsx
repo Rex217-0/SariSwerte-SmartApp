@@ -11,6 +11,7 @@ import {
   BrainOfflineError,
   type BrainConfig,
 } from './brain/seallm';
+import { answerLocally } from './brain/local';
 import {
   loadVoiceConfig,
   saveVoiceConfig,
@@ -151,9 +152,14 @@ export default function App() {
     } catch (err) {
       const message = err instanceof BrainOfflineError ? err.message : (err as Error).message;
       setOnline(false);
-      pushLog('sys', `BRAIN OFFLINE — ${message}`);
-      // INDAY still moves her mouth so the failure is visibly the brain, not the avatar.
-      lipPlayer.current.play('Hindi ako makakonekta ngayon. Pakicheck ang SeaLLM tunnel.');
+      pushLog('sys', `SeaLLM offline — local na muna ang utak ni INDAY (${message})`);
+
+      // A cold or missing tunnel must not leave INDAY silent. Answer from the
+      // operator's own story blocks and speak it, so she still works.
+      const local = answerLocally(text, storyN);
+      setTurns((prev) => [...prev, { role: 'assistant', content: local.text }]);
+      pushLog('inday', local.text);
+      await say(local.text);
     } finally {
       setBusy(false);
     }
