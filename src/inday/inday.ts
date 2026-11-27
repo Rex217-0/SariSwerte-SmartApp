@@ -450,6 +450,10 @@ export async function loadInday(opts: LoadIndayOptions = {}): Promise<IndayHandl
   const headBones = grab(['neck', 'neck1', 'neck2', 'head']);
   const armBonesL = grab(['leftarm', 'leftforearm']);
   const armBonesR = grab(['rightarm', 'rightforearm']);
+  // Only the wrist itself, not the fingers: grabbing every finger bone made the
+  // hands curl and uncurl on their own, which looked restless.
+  const handBonesL = grab(['lefthand']);
+  const handBonesR = grab(['righthand']);
   const rigged = boneCount > 0;
 
   let speaking = false;
@@ -474,21 +478,84 @@ export async function loadInday(opts: LoadIndayOptions = {}): Promise<IndayHandl
       bone.rotation.z = rest.z + Math.sin(t * 0.45) * 0.02;
     }
 
-    // Arms: a small open-hand selling gesture while speaking, relaxed otherwise.
-    const gest = Math.sin(t * 1.9) * talkRamp;
+    // Arms: relaxed at rest, and a small gesture only while speaking. The
+    // gesture is deliberately low-amplitude and slow (0.55 Hz, ~4 degrees).
+    // An earlier version swung them continuously at 1.9 rad/s with the whole
+    // shoulder, which read as a windmill and looked tiring.
+    const gest = Math.sin(t * 0.55) * talkRamp;
     for (const { bone, rest } of armBonesL) {
-      bone.rotation.z = rest.z + gest * 0.13 + talkRamp * 0.05;
-      bone.rotation.x = rest.x - gest * 0.07;
+      bone.rotation.z = rest.z + gest * 0.055 + talkRamp * 0.02;
+      bone.rotation.x = rest.x - gest * 0.03;
     }
     for (const { bone, rest } of armBonesR) {
-      bone.rotation.z = rest.z - gest * 0.11 - talkRamp * 0.04;
-      bone.rotation.x = rest.x + gest * 0.06;
+      bone.rotation.z = rest.z - gest * 0.045 - talkRamp * 0.015;
+      bone.rotation.x = rest.x + gest * 0.025;
+    }
+
+    // Hands stay softly curled rather than stiff, and the wrist barely moves.
+    const wrist = Math.sin(t * 0.5) * talkRamp * 0.04;
+    for (const { bone, rest } of handBonesL) {
+      bone.rotation.z = rest.z + wrist;
+    }
+    for (const { bone, rest } of handBonesR) {
+      bone.rotation.z = rest.z - wrist;
     }
   };
 
   const mode: LipSyncMode = hasVisemes ? 'visemes' : hasArkit ? 'arkit' : jawBone ? 'jaw-bone' : 'none';
 
+  // ---- Face -----------------------------------------------------------
+  // The rig ships 51 ARKit blendshapes but no jaw bone, so the mouth has to be
+  // driven entirely by morphs. Opening the jaw alone looked mechanical, so the
+  // lips and cheeks move with it: a wide "aa" rounds the mouth, and the lower
+  // lip drops instead of the whole face shifting.
+  const MORPHS = {
+    open: ['jawOpen'],
+    round: ['mouthFunnel', 'mouthPucker'],
+    lower: ['mouthLowerDownLeft', 'mouthLowerDownRight'],
+    close: ['mouthClose'],
+    smile: ['mouthSmileLeft', 'mouthSmileRight'],
+  } as const;
+
+  /** Slowly blinking eyes, because a face that never blinks looks dead. */
+  let nextBlink = 2.5;
+  let blinkStart = -1;
+
+  const driveFace = (t: number, open: number) => {
+    if (mode !== 'arkit') return;
+    setMorph(meshes, 'jawOpen', open);
+    // Funnel/pucker only on the wider vowels, so speech does not look like a kiss.
+    const round = open > 0.55 ? (open - 0.55) / 0.45 : 0;
+    for (const name of MORPHS.round) setMorph(meshes, name, round * 0.35);
+    const lower = Math.max(0, open - 0.25);
+    for (const name of MORPHS.lower) setMorph(meshes, name, lower * 0.3);
+    setMorph(meshes, 'mouthClose', Math.max(0, 0.28 - open) * 0.9);
+    // A light smile at rest, so she does not look bored between sentences.
+    const smile = 0.12 + open * 0.1;
+    for (const name of MORPHS.smile) setMorph(meshes, name, smile);
+
+    // Blink on a natural interval, never twice in the same beat.
+    if (blinkStart < 0 && t >= nextBlink) {
+      blinkStart = t;
+    }
+    if (blinkStart >= 0) {
+      const phase = (t - blinkStart) / 0.16;
+      if (phase >= 1) {
+        blinkStart = -1;
+        nextBlink = t + 2.4 + Math.random() * 3.2;
+        setMorph(meshes, 'eyeBlinkLeft', 0);
+        setMorph(meshes, 'eyeBlinkRight', 0);
+      } else {
+        const v = Math.sin(phase * Math.PI);
+        setMorph(meshes, 'eyeBlinkLeft', v);
+        setMorph(meshes, 'eyeBlinkRight', v);
+      }
+    }
+  };
+
   let jawBase: number | undefined;
+  /** Latest mouth opening from the lip-sync track, consumed by update(). */
+  let lastMouth = 0;
   const setMouthOpen = (v: number) => {
     const open = THREE.MathUtils.clamp(v, 0, 1);
     if (mode === 'visemes') {
@@ -497,8 +564,8 @@ export async function loadInday(opts: LoadIndayOptions = {}): Promise<IndayHandl
       setMorph(meshes, 'viseme_O', open * 0.35);
       setMorph(meshes, 'viseme_sil', 1 - open);
     } else if (mode === 'arkit') {
-      setMorph(meshes, 'jawOpen', open);
-      setMorph(meshes, 'mouthClose', (1 - open) * 0.4);
+      // Face is driven from update(), which has the clock for blinking.
+      lastMouth = open;
     } else if (mode === 'jaw-bone' && jawBone) {
       if (jawBase === undefined) jawBase = jawBone.rotation.x;
       jawBone.rotation.x = jawBase + open * 0.32;
@@ -532,6 +599,7 @@ export async function loadInday(opts: LoadIndayOptions = {}): Promise<IndayHandl
     update(elapsed: number) {
       group.position.y = Math.sin(elapsed * 1.1) * 0.005;
       animateBody(elapsed, speaking);
+      driveFace(elapsed, lastMouth);
     },
     dispose() {
       root.traverse((o) => {

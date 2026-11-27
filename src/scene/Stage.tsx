@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { buildStore, addStoreLights } from './store';
+import { loadBackdrop } from './backdrop';
 import { loadInday, type AvatarCapabilities, type IndayHandle } from '../inday/inday';
 import { LipSyncPlayer } from '../inday/lipsync';
 
@@ -56,6 +57,24 @@ export function Stage({ mouthRef, speakingRef, onCapabilities, onReady, onError 
     addStoreLights(scene);
     const store = buildStore();
     scene.add(store.root);
+
+    // A photo of the real tindahan, if the operator dropped one in public/.
+    // The emerald wall stays underneath as the fallback.
+    loadBackdrop()
+      .then((backdrop) => {
+        if (!backdrop) return;
+        if (disposed) {
+          backdrop.geometry.dispose();
+          const mat = backdrop.material as THREE.Material | THREE.Material[];
+          if (Array.isArray(mat)) mat.forEach((m) => m.dispose());
+          else mat.dispose();
+          return;
+        }
+        scene.add(backdrop);
+      })
+      .catch(() => {
+        /* no backdrop is a valid state */
+      });
 
     // A soft contact shadow so INDAY feels planted on the tile.
     const blob = new THREE.Mesh(

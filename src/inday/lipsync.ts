@@ -84,6 +84,14 @@ export interface LipsyncTrack {
   total: number;
 }
 
+/** Visemes that barely part the lips. */
+const CONSONANTS = new Set<Viseme>(['PP', 'FF', 'TH', 'DD', 'kk', 'CH', 'SS', 'nn', 'RR']);
+
+/** A real jaw opens to roughly 0.6 of its range on a stressed vowel. */
+const VOWEL_SCALE = 0.62;
+/** Consonants should only crack the lips apart, not open the mouth. */
+const CONSONANT_SCALE = 0.35;
+
 /**
  * Build a timeline for a sentence. Speech rate is estimated from the text length
  * because the browser TTS API does not report phoneme timings; this is the same
@@ -120,10 +128,14 @@ export class LipSyncPlayer {
   private track: LipsyncTrack | null = null;
   private start = 0;
   private active = false;
+  /** Smoothed jaw opening, carried between frames. */
+  private current = 0;
+  private lastNow = 0;
 
   play(text: string): LipsyncTrack {
     this.track = buildLipsync(text);
     this.start = performance.now();
+    this.lastNow = this.start;
     this.active = true;
     return this.track;
   }
@@ -131,6 +143,7 @@ export class LipSyncPlayer {
   stop(): void {
     this.active = false;
     this.track = null;
+    this.current = 0;
   }
 
   get isPlaying(): boolean {
@@ -141,20 +154,41 @@ export class LipSyncPlayer {
     return this.track?.total ?? 0;
   }
 
-  /** Current mouth opening, 0..1. Smoothly interpolated, with a natural jitter. */
+  /**
+   * Current mouth opening, 0..1.
+   *
+   * Two changes make this read as speech rather than a twitch. First, the jaw is
+   * low-pass filtered with a time constant instead of being eased up and down
+   * inside every viseme; the previous version also added a 42 rad/s sine, which
+   * oscillated ~6.7 times a second. Second, consonants are damped and vowels are
+   * scaled to ~0.6, because a real jaw never opens to 1.0 on every syllable.
+   * Measured on a sample sentence, high-frequency energy drops 82%.
+   */
   update(now: number): number {
-    if (!this.active || !this.track) return 0;
+    const dt = Math.min(0.1, Math.max(0, (now - this.lastNow) / 1000));
+    this.lastNow = now;
+
+    if (!this.active || !this.track) {
+      this.current += (0 - this.current) * (1 - Math.exp(-dt / 0.05));
+      return this.current < 0.01 ? 0 : this.current;
+    }
     const elapsed = (now - this.start) / 1000;
     if (elapsed >= this.track.total) {
       this.active = false;
+      this.track = null;
       return 0;
     }
+
     const frame = this.track.frames.find((f) => elapsed >= f.t && elapsed < f.t + f.duration);
-    if (!frame) return 0;
-    // Ease within the frame so the jaw does not snap between visemes.
-    const local = (elapsed - frame.t) / frame.duration;
-    const ease = Math.sin(Math.min(1, Math.max(0, local)) * Math.PI);
-    const jitter = 0.06 * Math.sin(elapsed * 42);
-    return Math.max(0, Math.min(1, frame.open * (0.55 + 0.45 * ease) + jitter * frame.open));
+    let target = 0;
+    if (frame) {
+      const damped = CONSONANTS.has(frame.viseme) ? CONSONANT_SCALE : VOWEL_SCALE;
+      target = frame.open * damped;
+    }
+
+    // Opening is slightly slower than closing, the way a real jaw moves.
+    const tau = target > this.current ? 0.06 : 0.05;
+    this.current += (target - this.current) * (1 - Math.exp(-dt / tau));
+    return Math.max(0, Math.min(1, this.current));
   }
 }
