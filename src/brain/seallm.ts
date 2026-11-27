@@ -8,13 +8,16 @@
  *   POST {baseUrl}/v1/chat/completions
  *   Authorization: Bearer {token}   (optional)
  *
- * No Gemini, no Google AI Studio, no Convai, no hosted avatar service.
+ * The persona, voice metadata and story blocks come from the operator's own
+ * Convai avatar; only the language model is SeaLLM.
  *
  * The tunnel URL changes every time the Kaggle session restarts, so it is read
  * from the URL (?brain=...) or localStorage at runtime instead of being baked in.
  * When it is unset or unreachable the app reports BRAIN OFFLINE — it never
  * fabricates a reply.
  */
+
+import { INDAY_IDENTITY, OPENING_BLOCK, blockByNumber } from '../inday/convai/inday-story';
 
 export interface BrainConfig {
   baseUrl: string;
@@ -40,13 +43,26 @@ export class BrainOfflineError extends Error {
 const STORAGE_KEY = 'sariswerte.brain';
 export const DEFAULT_MODEL = 'SeaLLM-7B-v2';
 
-export const INDAY_SYSTEM_PROMPT = [
-  'You are INDAY, the friendly store assistant of SariSwerte, a modern sari-sari store in the Philippines.',
-  'You speak warmly and briefly, mixing Filipino and English the way a real tindera does.',
-  'You know the store stocks: Century Tuna, Lucky Me, Piattos, Nova, Skyflakes, Coke, Sprite, pandesal (tinapay), eggs, and 5kg Sinandomeng rice.',
-  'The store accepts cash, GCash and Maya. Keep answers under 60 words so the 3D avatar can speak them naturally.',
-  'Never invent prices you were not given. If you do not know, say so and offer to check.',
-].join(' ');
+/**
+ * INDAY's persona is not written here: it is the operator's own Convai avatar.
+ * The objective text of each story block is the exact prompt Convai sends, so
+ * the SeaLLM prompt is assembled from those blocks rather than paraphrased.
+ */
+export function systemPromptFor(blockNumber?: number): string {
+  const block = blockNumber ? blockByNumber(blockNumber) : OPENING_BLOCK;
+  const lines = [
+    block ? block.objective : '',
+    `Personality (Convai traits, 1-5): ${Object.entries(INDAY_IDENTITY.traits.personality_traits)
+      .map(([k, v]) => `${k} ${v}`)
+      .join(', ')}.`,
+    'You are INDAY of SariSwerte sari-sari store. Store stocks: Century Tuna, Lucky Me, Piattos, Nova, Skyflakes, Coke, Sprite, pandesal (tinapay), eggs, and 5kg Sinandomeng rice.',
+    'The store accepts cash, GCash and Maya. Never invent prices. Keep replies short enough to speak aloud.',
+  ];
+  return lines.filter(Boolean).join(' ');
+}
+
+/** Backwards-compatible name: the opening block's prompt. */
+export const INDAY_SYSTEM_PROMPT = systemPromptFor();
 
 export function loadBrainConfig(): BrainConfig {
   const params = new URLSearchParams(window.location.search);
@@ -94,6 +110,7 @@ export async function askSeaLLM(
   message: string,
   history: { role: 'user' | 'assistant'; content: string }[] = [],
   timeoutMs = 60000,
+  blockNumber?: number,
 ): Promise<BrainReply> {
   if (!isBrainConfigured(cfg)) {
     throw new BrainOfflineError(
@@ -118,7 +135,7 @@ export async function askSeaLLM(
         temperature: 0.7,
         max_tokens: 220,
         messages: [
-          { role: 'system', content: INDAY_SYSTEM_PROMPT },
+          { role: 'system', content: systemPromptFor(blockNumber) },
           ...history.slice(-6),
           { role: 'user', content: message },
         ],

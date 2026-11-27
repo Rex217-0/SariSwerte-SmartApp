@@ -12,6 +12,11 @@ import {
   BrainOfflineError,
   type BrainConfig,
 } from './brain/seallm';
+import {
+  START_BLOCK_NUMBER,
+  STORY_BLOCK_COUNT,
+  blockByNumber,
+} from './inday/convai/inday-story';
 import './ui.css';
 
 type Turn = { role: 'user' | 'assistant'; content: string };
@@ -92,6 +97,10 @@ export default function App() {
     }
   }, []);
 
+  // INDAY's narrative state comes from the Convai avatar, not from a local script.
+  const [storyN, setStoryN] = useState(START_BLOCK_NUMBER);
+  const storyBlock = blockByNumber(storyN);
+
   const send = useCallback(async () => {
     const text = input.trim();
     if (!text || busy) return;
@@ -101,10 +110,25 @@ export default function App() {
     setTurns((prev) => [...prev, { role: 'user', content: text }]);
 
     try {
-      const reply = await askSeaLLM(brain, text, turns);
+      const reply = await askSeaLLM(brain, text, turns, 60000, storyN);
       setOnline(true);
       setTurns((prev) => [...prev, { role: 'assistant', content: reply.text }]);
       pushLog('inday', reply.text);
+
+      // Follow the Convai decision graph: pick the first rule whose criteria the
+      // user's message plausibly matches, exactly as Convai routes story blocks.
+      const lower = text.toLowerCase();
+      const hit = (storyBlock?.decisions ?? []).find((d) => {
+        if (!d.goto || d.goto === storyN) return false;
+        const words = d.when.toLowerCase().match(/[a-z]{4,}/g) ?? [];
+        return words.some((w) => lower.includes(w));
+      });
+      if (hit?.goto) {
+        setStoryN(hit.goto);
+        const nb = blockByNumber(hit.goto);
+        pushLog('sys', `Story block ${storyN} → ${hit.goto}${nb ? ` (${nb.name})` : ''}`);
+      }
+
       await say(reply.text);
     } catch (err) {
       const message = err instanceof BrainOfflineError ? err.message : (err as Error).message;
@@ -179,6 +203,10 @@ export default function App() {
           <span className={`pill ${brainPill.cls}`}>
             <i className="dot" />
             {brainPill.label}
+          </span>
+          <span className="pill on" title="Convai story block driving INDAY">
+            <i className="dot" />
+            BLOCK {storyN}/{STORY_BLOCK_COUNT}
           </span>
         </div>
       </header>
