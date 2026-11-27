@@ -17,3 +17,6 @@ seallm/cloudflared
 seallm/tunnel.log
 seallm/tindahan_data.json
 seallm/.env
+
+# Agent working notes
+.openhands/
