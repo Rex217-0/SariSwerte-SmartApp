@@ -8,3 +8,12 @@ dist/
 *.convai
 .env
 .env.*
+!.env.example
+!seallm/.env.example
+
+# SeaLLM worker artifacts (the notebook and .env.example stay tracked)
+seallm/*.gguf
+seallm/cloudflared
+seallm/tunnel.log
+seallm/tindahan_data.json
+seallm/.env

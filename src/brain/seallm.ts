@@ -2,8 +2,9 @@
  * The SeaLLM brain.
  *
  * INDAY's intelligence comes from the operator's own SeaLLM model
- * (Rexmay/SeaLLM-7B-v2-gguf-bucket) running on Kaggle, exposed through a
- * Cloudflare tunnel that speaks the OpenAI chat-completions API:
+ * (Rexmay/SeaLLM-7B-v2-gguf-bucket) served by the standalone notebook in
+ * `seallm/`, exposed through a Cloudflare tunnel that speaks the OpenAI
+ * chat-completions API:
  *
  *   POST {baseUrl}/v1/chat/completions
  *   Authorization: Bearer {token}   (optional)
@@ -41,7 +42,7 @@ export class BrainOfflineError extends Error {
 }
 
 const STORAGE_KEY = 'sariswerte.brain';
-export const DEFAULT_MODEL = 'SeaLLM-7B-v2';
+export const DEFAULT_MODEL = 'SeaLLM-7B-v2-q4_0';
 
 /**
  * INDAY's persona is not written here: it is the operator's own Convai avatar.
@@ -93,7 +94,7 @@ export async function probeBrain(cfg: BrainConfig, timeoutMs = 8000): Promise<bo
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), timeoutMs);
   try {
-    const res = await fetch(`${cfg.baseUrl}/v1/models`, {
+    const res = await fetch(`${cfg.baseUrl}/health`, {
       headers: cfg.token ? { Authorization: `Bearer ${cfg.token}` } : undefined,
       signal: ctrl.signal,
     });
@@ -127,7 +128,9 @@ export async function askSeaLLM(
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        ...(cfg.token ? { Authorization: `Bearer ${cfg.token}` } : {}),
+        ...(cfg.token
+          ? { Authorization: `Bearer ${cfg.token}`, 'X-Seller-Token': cfg.token }
+          : {}),
       },
       signal: ctrl.signal,
       body: JSON.stringify({
@@ -168,7 +171,7 @@ export async function askSeaLLM(
       throw new BrainOfflineError(`SeaLLM timed out after ${Math.round(timeoutMs / 1000)}s. The Kaggle GPU may be cold-starting.`);
     }
     throw new BrainOfflineError(
-      `Cannot reach the SeaLLM tunnel at ${cfg.baseUrl}. Is the Kaggle notebook running and the Cloudflare tunnel open? (${(err as Error).message})`,
+      `Cannot reach the SeaLLM tunnel at ${cfg.baseUrl}. Is the SeaLLM notebook running and the Cloudflare tunnel open? (${(err as Error).message})`,
     );
   } finally {
     clearTimeout(timer);
