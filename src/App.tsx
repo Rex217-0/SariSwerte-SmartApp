@@ -8,10 +8,16 @@ import {
   loadBrainConfig,
   probeBrain,
   saveBrainConfig,
-  speak,
   BrainOfflineError,
   type BrainConfig,
 } from './brain/seallm';
+import {
+  loadVoiceConfig,
+  saveVoiceConfig,
+  speakWithVoice,
+  isFishConfigured,
+  type VoiceConfig,
+} from './brain/voice';
 import {
   START_BLOCK_NUMBER,
   STORY_BLOCK_COUNT,
@@ -36,6 +42,8 @@ export default function App() {
   const [online, setOnline] = useState<boolean | null>(null);
   const [showSettings, setShowSettings] = useState(false);
   const [draft, setDraft] = useState<BrainConfig>(brain);
+  const [voice, setVoice] = useState<VoiceConfig>(() => loadVoiceConfig());
+  const [voiceDraft, setVoiceDraft] = useState<VoiceConfig>(voice);
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
   const [turns, setTurns] = useState<Turn[]>([]);
@@ -85,17 +93,27 @@ export default function App() {
     return () => cancelAnimationFrame(raf);
   }, []);
 
-  /** Speak a line: drive the lips from the same text, and the audio in parallel. */
-  const say = useCallback(async (text: string) => {
-    lipPlayer.current.play(text);
-    speechActive.current = true;
-    try {
-      await speak(text);
-    } finally {
-      speechActive.current = false;
-      // Let the lip track finish naturally; it stops itself.
-    }
-  }, []);
+  /**
+   * Speak a line: drive the lips from the same text, and the audio in parallel.
+   * Fish Audio is tried first; the browser voice covers quota and network
+   * failures so INDAY is never silent.
+   */
+  const say = useCallback(
+    async (text: string) => {
+      lipPlayer.current.play(text);
+      speechActive.current = true;
+      try {
+        const result = await speakWithVoice(text, voice);
+        if (result.fellBackReason) {
+          pushLog('sys', `Boses: browser na muna (${result.fellBackReason})`);
+        }
+      } finally {
+        speechActive.current = false;
+        // Let the lip track finish naturally; it stops itself.
+      }
+    },
+    [voice, pushLog],
+  );
 
   // INDAY's narrative state comes from the Convai avatar, not from a local script.
   const [storyN, setStoryN] = useState(START_BLOCK_NUMBER);
@@ -149,7 +167,22 @@ export default function App() {
     };
     saveBrainConfig(cleaned);
     setBrain(cleaned);
+
+    const cleanedVoice: VoiceConfig = {
+      ...voiceDraft,
+      baseUrl: voiceDraft.baseUrl.trim(),
+      referenceId: voiceDraft.referenceId.trim(),
+      provider: voiceDraft.provider,
+    };
+    saveVoiceConfig(cleanedVoice);
+    setVoice(cleanedVoice);
     setShowSettings(false);
+    pushLog(
+      'sys',
+      isFishConfigured(cleanedVoice)
+        ? 'Boses: Fish Audio na si INDAY (sa notebook ang key).'
+        : 'Boses: browser muna — walang tunnel para sa /tts.',
+    );
     pushLog('sys', cleaned.baseUrl ? `Brain set to ${cleaned.baseUrl}` : 'Brain cleared — INDAY has no SeaLLM tunnel.');
   };
 
@@ -237,7 +270,7 @@ export default function App() {
             </div>
           </div>
           <div className="grow" />
-          <button className="icon-btn" onClick={() => { setDraft(brain); setShowSettings(true); }} aria-label="Brain settings">
+          <button className="icon-btn" onClick={() => { setDraft(brain); setVoiceDraft(voice); setShowSettings(true); }} aria-label="Brain settings">
             ⚙
           </button>
         </div>
@@ -276,9 +309,9 @@ export default function App() {
           <div className="sheet" onClick={(e) => e.stopPropagation()}>
             <h2>SeaLLM Brain</h2>
             <p className="hint">
-              Paste your Cloudflare tunnel URL for the Kaggle SeaLLM notebook
-              (Rexmay/SeaLLM-7B-v2-gguf-bucket). INDAY calls{' '}
-              <code>/v1/chat/completions</code> on it. No Gemini, no Convai.
+              Paste your Cloudflare tunnel URL for the standalone SeaLLM notebook
+              (<code>seallm/</code>, Rexmay/SeaLLM-7B-v2-gguf-bucket). INDAY calls{' '}
+              <code>/v1/chat/completions</code> on it.
             </p>
             <label className="field">
               <span>Tunnel base URL</span>
@@ -310,6 +343,46 @@ export default function App() {
                 spellCheck={false}
               />
             </label>
+            <h2 style={{ marginTop: 22 }}>Boses ni INDAY</h2>
+            <p className="hint">
+              Fish Audio ang boses ni INDAY, pero hindi kayang tawagan ng browser
+              nang direkta (walang CORS). Nasa notebook ang key: dito lang kailangan
+              ang tunnel URL, at doon naka-<code>.env</code> ang <code>FISH_API_KEY</code>.
+              Kapag walang tunnel, browser voice muna.
+            </p>
+            <label className="field">
+              <span>Tunnel URL para sa /tts</span>
+              <input
+                value={voiceDraft.baseUrl}
+                onChange={(e) => setVoiceDraft({ ...voiceDraft, baseUrl: e.target.value })}
+                placeholder="https://xxxx-yyyy.trycloudflare.com"
+                autoCapitalize="none"
+                spellCheck={false}
+              />
+            </label>
+            <label className="field">
+              <span>Voice / reference id</span>
+              <input
+                value={voiceDraft.referenceId}
+                onChange={(e) => setVoiceDraft({ ...voiceDraft, referenceId: e.target.value })}
+                placeholder="c9ee32e569964531b5d612b938929098"
+                autoCapitalize="none"
+                spellCheck={false}
+              />
+            </label>
+            <label className="field">
+              <span>Provider</span>
+              <select
+                value={voiceDraft.provider}
+                onChange={(e) =>
+                  setVoiceDraft({ ...voiceDraft, provider: e.target.value as VoiceConfig['provider'] })
+                }
+              >
+                <option value="fish">Fish Audio</option>
+                <option value="browser">Browser voice (free fallback)</option>
+              </select>
+            </label>
+
             <div className="sheet-actions">
               <button className="btn-ghost" onClick={() => setShowSettings(false)}>Cancel</button>
               <button className="btn-solid" onClick={applySettings}>Save</button>
